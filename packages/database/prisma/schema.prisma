@@ -1,0 +1,1059 @@
+// CapitalOS - Capital Intelligence Operating System
+// Full platform database schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum PortalType {
+  COMPANY
+  ANALYST
+  LENDER
+  INVESTOR
+  COMMITTEE
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum OrganizationType {
+  PLATFORM
+  COMPANY
+  ADVISORY
+  BANK
+  NBFC
+  VC_FUND
+  PE_FUND
+  FAMILY_OFFICE
+}
+
+enum CompanyStatus {
+  DRAFT
+  ACTIVE
+  UNDER_REVIEW
+  SUSPENDED
+  ARCHIVED
+}
+
+enum WorkflowStatus {
+  DRAFT
+  SUBMITTED
+  ANALYST_REVIEW
+  SENIOR_ANALYST_REVIEW
+  COMMITTEE_REVIEW
+  APPROVED
+  REJECTED
+  RETURNED
+}
+
+enum ScoringMode {
+  AUTO
+  MANUAL
+  AI_SUGGESTED
+  OVERRIDE
+}
+
+enum ChsPillar {
+  STRATEGIC_BUSINESS
+  FINANCIAL
+  LIQUIDITY
+  MANAGEMENT
+  OPERATIONAL
+  INDUSTRY
+  ESG
+}
+
+enum CapitalRoute {
+  DEBT
+  EQUITY
+  STARTUP
+}
+
+enum DealStatus {
+  PROSPECT
+  ACTIVE
+  ON_HOLD
+  CLOSED_WON
+  CLOSED_LOST
+  WITHDRAWN
+}
+
+enum DocumentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+enum AuditAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  EXPORT
+  APPROVE
+  REJECT
+  OVERRIDE
+  SUBMIT
+  RETURN
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  SMS
+}
+
+enum ReportType {
+  CHS_REPORT
+  RISK_ASSESSMENT
+  COMMITTEE_NOTE
+  LENDER_REPORT
+  PORTFOLIO_REPORT
+  EXECUTIVE_SUMMARY
+}
+
+enum ReportFormat {
+  PDF
+  EXCEL
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// ============================================================================
+// AUTHENTICATION & AUTHORIZATION
+// ============================================================================
+
+model User {
+  id                String     @id @default(uuid())
+  email             String     @unique
+  passwordHash      String     @map("password_hash")
+  firstName         String     @map("first_name")
+  lastName          String     @map("last_name")
+  phone             String?
+  status            UserStatus @default(PENDING_VERIFICATION)
+  emailVerified     Boolean    @default(false) @map("email_verified")
+  mfaEnabled        Boolean    @default(false) @map("mfa_enabled")
+  mfaSecret         String?    @map("mfa_secret")
+  lastLoginAt       DateTime?  @map("last_login_at")
+  passwordChangedAt DateTime?  @map("password_changed_at")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+
+  refreshTokens       RefreshToken[]
+  userRoles           UserRole[]
+  organizationMembers OrganizationMember[]
+  auditLogs           AuditLog[]
+  chsOverrides        ChsOverride[]
+  workflowActions     WorkflowAction[]
+  committeeVotes      CommitteeVote[]
+  notifications       Notification[]
+  documents           Document[]           @relation("UploadedBy")
+  aiRecommendations   AiRecommendation[]   @relation("ReviewedBy")
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  revoked   Boolean  @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Role {
+  id          String     @id @default(uuid())
+  name        String     @unique
+  code        String     @unique
+  description String?
+  portal      PortalType
+  isSystem    Boolean    @default(false) @map("is_system")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String  @id @default(uuid())
+  code        String  @unique
+  name        String
+  module      String
+  description String?
+
+  rolePermissions RolePermission[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  roleId         String   @map("role_id")
+  organizationId String?  @map("organization_id")
+  assignedAt     DateTime @default(now()) @map("assigned_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         Role          @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@unique([userId, roleId, organizationId])
+  @@index([userId])
+  @@map("user_roles")
+}
+
+// ============================================================================
+// ORGANIZATION & MULTI-TENANCY
+// ============================================================================
+
+model Organization {
+  id        String           @id @default(uuid())
+  name      String
+  type      OrganizationType
+  legalName String?          @map("legal_name")
+  cin       String?
+  gstin     String?
+  pan       String?
+  website   String?
+  isActive  Boolean          @default(true) @map("is_active")
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+
+  members   OrganizationMember[]
+  userRoles UserRole[]
+  companies Company[]
+
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  userId         String   @map("user_id")
+  title          String?
+  isPrimary      Boolean  @default(false) @map("is_primary")
+  joinedAt       DateTime @default(now()) @map("joined_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@map("organization_members")
+}
+
+// ============================================================================
+// MASTER DATA
+// ============================================================================
+
+model MasterDataCategory {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  items MasterDataItem[]
+
+  @@map("master_data_categories")
+}
+
+model MasterDataItem {
+  id         String   @id @default(uuid())
+  categoryId String   @map("category_id")
+  code       String
+  name       String
+  value      String?
+  metadata   Json?
+  sortOrder  Int      @default(0) @map("sort_order")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  category MasterDataCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, code])
+  @@map("master_data_items")
+}
+
+// ============================================================================
+// INDUSTRY TAXONOMY
+// ============================================================================
+
+model Industry {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  subSectors     SubSector[]
+  pillarWeights  IndustryPillarWeight[]
+  kpis           IndustryKpi[]
+  companies      Company[]
+  chsAssessments ChsAssessment[]
+
+  @@map("industries")
+}
+
+model SubSector {
+  id          String   @id @default(uuid())
+  industryId  String   @map("industry_id")
+  code        String
+  name        String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  industry       Industry        @relation(fields: [industryId], references: [id], onDelete: Cascade)
+  companies      Company[]
+  chsAssessments ChsAssessment[]
+  parameters     ChsParameter[]
+
+  @@unique([industryId, code])
+  @@index([industryId])
+  @@map("sub_sectors")
+}
+
+model IndustryPillarWeight {
+  id         String    @id @default(uuid())
+  industryId String    @map("industry_id")
+  pillar     ChsPillar
+  weight     Decimal   @db.Decimal(5, 2)
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  industry Industry @relation(fields: [industryId], references: [id], onDelete: Cascade)
+
+  @@unique([industryId, pillar])
+  @@map("industry_pillar_weights")
+}
+
+model IndustryKpi {
+  id           String   @id @default(uuid())
+  industryId   String   @map("industry_id")
+  code         String
+  name         String
+  formula      String?
+  unit         String?
+  benchmarkMin Decimal? @map("benchmark_min") @db.Decimal(15, 4)
+  benchmarkMax Decimal? @map("benchmark_max") @db.Decimal(15, 4)
+  isActive     Boolean  @default(true) @map("is_active")
+
+  industry Industry @relation(fields: [industryId], references: [id], onDelete: Cascade)
+
+  @@unique([industryId, code])
+  @@map("industry_kpis")
+}
+
+// ============================================================================
+// COMPANY MANAGEMENT
+// ============================================================================
+
+model Company {
+  id             String        @id @default(uuid())
+  organizationId String?       @map("organization_id")
+  industryId     String        @map("industry_id")
+  subSectorId    String        @map("sub_sector_id")
+  legalName      String        @map("legal_name")
+  tradeName      String?       @map("trade_name")
+  cin            String?       @unique
+  pan            String?
+  gstin          String?
+  incorporationDate DateTime?  @map("incorporation_date")
+  registeredAddress String?    @map("registered_address")
+  status         CompanyStatus @default(DRAFT)
+  employeeCount  Int?          @map("employee_count")
+  annualRevenue  Decimal?      @map("annual_revenue") @db.Decimal(18, 2)
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  organization   Organization?   @relation(fields: [organizationId], references: [id])
+  industry     Industry        @relation(fields: [industryId], references: [id])
+  subSector    SubSector         @relation(fields: [subSectorId], references: [id])
+  profile      CompanyProfile?
+  contacts     CompanyContact[]
+  promoters    Promoter[]
+  documents    Document[]
+  financialPeriods FinancialPeriod[]
+  chsAssessments   ChsAssessment[]
+  deals            Deal[]
+  workflowInstances WorkflowInstance[]
+
+  @@index([industryId])
+  @@index([subSectorId])
+  @@index([status])
+  @@map("companies")
+}
+
+model CompanyProfile {
+  id                  String   @id @default(uuid())
+  companyId           String   @unique @map("company_id")
+  businessDescription String?  @map("business_description") @db.Text
+  productsServices    String?  @map("products_services") @db.Text
+  targetMarket        String?  @map("target_market")
+  competitivePosition String?  @map("competitive_position")
+  website             String?
+  linkedinUrl         String?  @map("linkedin_url")
+  metadata            Json?
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("company_profiles")
+}
+
+model CompanyContact {
+  id        String  @id @default(uuid())
+  companyId String  @map("company_id")
+  name      String
+  designation String?
+  email     String?
+  phone     String?
+  isPrimary Boolean @default(false) @map("is_primary")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("company_contacts")
+}
+
+model Promoter {
+  id             String   @id @default(uuid())
+  companyId      String   @map("company_id")
+  name           String
+  pan            String?
+  din            String?
+  shareholdingPct Decimal? @map("shareholding_pct") @db.Decimal(5, 2)
+  experienceYears Int?    @map("experience_years")
+  background     String?  @db.Text
+  isKeyPromoter  Boolean  @default(false) @map("is_key_promoter")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("promoters")
+}
+
+// ============================================================================
+// DOCUMENT VAULT
+// ============================================================================
+
+model DocumentCategory {
+  id          String  @id @default(uuid())
+  code        String  @unique
+  name        String
+  description String?
+  isRequired  Boolean @default(false) @map("is_required")
+
+  documents Document[]
+
+  @@map("document_categories")
+}
+
+model Document {
+  id           String         @id @default(uuid())
+  companyId    String         @map("company_id")
+  categoryId   String         @map("category_id")
+  uploadedById String         @map("uploaded_by_id")
+  fileName     String         @map("file_name")
+  fileKey      String         @map("file_key")
+  mimeType     String         @map("mime_type")
+  fileSize     Int            @map("file_size")
+  status       DocumentStatus @default(PENDING)
+  verifiedAt   DateTime?      @map("verified_at")
+  expiresAt    DateTime?      @map("expires_at")
+  metadata     Json?
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  company    Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category   DocumentCategory @relation(fields: [categoryId], references: [id])
+  uploadedBy User             @relation("UploadedBy", fields: [uploadedById], references: [id])
+
+  @@index([companyId])
+  @@map("documents")
+}
+
+// ============================================================================
+// CLIENT DATA SHEET & FINANCIAL ENGINE
+// ============================================================================
+
+model FinancialPeriod {
+  id         String   @id @default(uuid())
+  companyId  String   @map("company_id")
+  fiscalYear Int      @map("fiscal_year")
+  startDate  DateTime @map("start_date")
+  endDate    DateTime @map("end_date")
+  isAudited  Boolean  @default(false) @map("is_audited")
+  currency   String   @default("INR")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  financialData  FinancialData?
+  gstData        GstData?
+  itrData        ItrData?
+  bankingData    BankingData[]
+  computedMetrics ComputedMetric[]
+
+  @@unique([companyId, fiscalYear])
+  @@map("financial_periods")
+}
+
+model FinancialData {
+  id               String  @id @default(uuid())
+  periodId         String  @unique @map("period_id")
+  revenue          Decimal? @db.Decimal(18, 2)
+  otherIncome      Decimal? @map("other_income") @db.Decimal(18, 2)
+  cogs             Decimal? @db.Decimal(18, 2)
+  grossProfit      Decimal? @map("gross_profit") @db.Decimal(18, 2)
+  operatingExpenses Decimal? @map("operating_expenses") @db.Decimal(18, 2)
+  ebitda           Decimal? @db.Decimal(18, 2)
+  depreciation     Decimal? @db.Decimal(18, 2)
+  interestExpense  Decimal? @map("interest_expense") @db.Decimal(18, 2)
+  pbt              Decimal? @db.Decimal(18, 2)
+  tax              Decimal? @db.Decimal(18, 2)
+  pat              Decimal? @db.Decimal(18, 2)
+  totalAssets      Decimal? @map("total_assets") @db.Decimal(18, 2)
+  currentAssets    Decimal? @map("current_assets") @db.Decimal(18, 2)
+  fixedAssets      Decimal? @map("fixed_assets") @db.Decimal(18, 2)
+  totalLiabilities Decimal? @map("total_liabilities") @db.Decimal(18, 2)
+  currentLiabilities Decimal? @map("current_liabilities") @db.Decimal(18, 2)
+  longTermDebt     Decimal? @map("long_term_debt") @db.Decimal(18, 2)
+  shortTermDebt    Decimal? @map("short_term_debt") @db.Decimal(18, 2)
+  equity           Decimal? @db.Decimal(18, 2)
+  inventory        Decimal? @db.Decimal(18, 2)
+  receivables      Decimal? @db.Decimal(18, 2)
+  payables         Decimal? @db.Decimal(18, 2)
+  cash             Decimal? @db.Decimal(18, 2)
+
+  period FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@map("financial_data")
+}
+
+model GstData {
+  id            String  @id @default(uuid())
+  periodId      String  @unique @map("period_id")
+  gstin         String?
+  turnover      Decimal? @db.Decimal(18, 2)
+  taxPaid       Decimal? @map("tax_paid") @db.Decimal(18, 2)
+  filingStatus  String?  @map("filing_status")
+  returnPeriods Json?    @map("return_periods")
+
+  period FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@map("gst_data")
+}
+
+model ItrData {
+  id           String  @id @default(uuid())
+  periodId     String  @unique @map("period_id")
+  assessmentYear String? @map("assessment_year")
+  taxableIncome Decimal? @map("taxable_income") @db.Decimal(18, 2)
+  taxPaid      Decimal? @map("tax_paid") @db.Decimal(18, 2)
+  filingDate   DateTime? @map("filing_date")
+  formType     String?  @map("form_type")
+
+  period FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@map("itr_data")
+}
+
+model McaData {
+  id              String   @id @default(uuid())
+  companyId       String   @map("company_id")
+  filingType      String   @map("filing_type")
+  filingDate      DateTime @map("filing_date")
+  directorCount   Int?     @map("director_count")
+  chargeDetails   Json?    @map("charge_details")
+  complianceStatus String? @map("compliance_status")
+  rawData         Json?    @map("raw_data")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([companyId])
+  @@map("mca_data")
+}
+
+model BankingData {
+  id            String  @id @default(uuid())
+  periodId      String  @map("period_id")
+  bankName      String  @map("bank_name")
+  accountNumber String? @map("account_number")
+  accountType   String? @map("account_type")
+  avgBalance    Decimal? @map("avg_balance") @db.Decimal(18, 2)
+  ccLimit       Decimal? @map("cc_limit") @db.Decimal(18, 2)
+  ccUtilization Decimal? @map("cc_utilization") @db.Decimal(18, 2)
+  emiTrackRecord String? @map("emi_track_record")
+
+  period FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@index([periodId])
+  @@map("banking_data")
+}
+
+model Collateral {
+  id           String   @id @default(uuid())
+  companyId    String   @map("company_id")
+  type         String
+  description  String?  @db.Text
+  estimatedValue Decimal? @map("estimated_value") @db.Decimal(18, 2)
+  verifiedValue  Decimal? @map("verified_value") @db.Decimal(18, 2)
+  lienStatus   String?  @map("lien_status")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([companyId])
+  @@map("collateral")
+}
+
+model EsgData {
+  id              String   @id @default(uuid())
+  companyId       String   @map("company_id")
+  assessmentYear  Int      @map("assessment_year")
+  environmentalScore Decimal? @map("environmental_score") @db.Decimal(5, 2)
+  socialScore     Decimal? @map("social_score") @db.Decimal(5, 2)
+  governanceScore Decimal? @map("governance_score") @db.Decimal(5, 2)
+  certifications  Json?
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@unique([companyId, assessmentYear])
+  @@map("esg_data")
+}
+
+model ComputedMetric {
+  id         String  @id @default(uuid())
+  periodId   String  @map("period_id")
+  metricCode String  @map("metric_code")
+  metricName String  @map("metric_name")
+  value      Decimal @db.Decimal(15, 4)
+  unit       String?
+  computedAt DateTime @default(now()) @map("computed_at")
+
+  period FinancialPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@unique([periodId, metricCode])
+  @@map("computed_metrics")
+}
+
+// ============================================================================
+// CHS ENGINE
+// ============================================================================
+
+model ChsParameter {
+  id           String    @id @default(uuid())
+  pillar       ChsPillar
+  subSectorId  String?   @map("sub_sector_id")
+  code         String
+  name         String
+  description  String?   @db.Text
+  isQuantitative Boolean @default(false) @map("is_quantitative")
+  weight       Decimal   @db.Decimal(5, 2)
+  maxScore     Decimal   @default(100) @map("max_score") @db.Decimal(5, 2)
+  formula      String?
+  isActive     Boolean   @default(true) @map("is_active")
+
+  subSector      SubSector?         @relation(fields: [subSectorId], references: [id])
+  parameterScores ChsParameterScore[]
+  aiRecommendations AiRecommendation[]
+
+  @@unique([pillar, code, subSectorId])
+  @@map("chs_parameters")
+}
+
+model ChsAssessment {
+  id              String         @id @default(uuid())
+  companyId       String         @map("company_id")
+  industryId      String         @map("industry_id")
+  subSectorId     String         @map("sub_sector_id")
+  assessmentDate  DateTime       @default(now()) @map("assessment_date")
+  workflowStatus  WorkflowStatus @default(DRAFT) @map("workflow_status")
+  overallScore    Decimal?       @map("overall_score") @db.Decimal(5, 2)
+  capitalReadiness Decimal?      @map("capital_readiness") @db.Decimal(5, 2)
+  riskLevel       RiskLevel?     @map("risk_level")
+  recommendedRoute CapitalRoute? @map("recommended_route")
+  version         Int            @default(1)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  company        Company           @relation(fields: [companyId], references: [id])
+  industry       Industry          @relation(fields: [industryId], references: [id])
+  subSector      SubSector         @relation(fields: [subSectorId], references: [id])
+  pillarScores   ChsPillarScore[]
+  overrides      ChsOverride[]
+  riskMatrix     RiskMatrix?
+  workflowInstance WorkflowInstance?
+  reports        Report[]
+  deals          Deal[]
+
+  @@index([companyId])
+  @@index([workflowStatus])
+  @@map("chs_assessments")
+}
+
+model ChsPillarScore {
+  id           String      @id @default(uuid())
+  assessmentId String      @map("assessment_id")
+  pillar       ChsPillar
+  score        Decimal     @db.Decimal(5, 2)
+  weight       Decimal     @db.Decimal(5, 2)
+  weightedScore Decimal    @map("weighted_score") @db.Decimal(5, 2)
+  scoringMode  ScoringMode @map("scoring_mode")
+
+  assessment      ChsAssessment       @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  parameterScores ChsParameterScore[]
+
+  @@unique([assessmentId, pillar])
+  @@map("chs_pillar_scores")
+}
+
+model ChsParameterScore {
+  id            String      @id @default(uuid())
+  pillarScoreId String      @map("pillar_score_id")
+  parameterId   String      @map("parameter_id")
+  score         Decimal     @db.Decimal(5, 2)
+  scoringMode   ScoringMode @map("scoring_mode")
+  evidence      String?     @db.Text
+  notes         String?     @db.Text
+
+  pillarScore ChsPillarScore @relation(fields: [pillarScoreId], references: [id], onDelete: Cascade)
+  parameter   ChsParameter   @relation(fields: [parameterId], references: [id])
+  override    ChsOverride?
+
+  @@unique([pillarScoreId, parameterId])
+  @@map("chs_parameter_scores")
+}
+
+model ChsOverride {
+  id               String   @id @default(uuid())
+  assessmentId     String   @map("assessment_id")
+  parameterScoreId String   @unique @map("parameter_score_id")
+  userId           String   @map("user_id")
+  originalScore    Decimal  @map("original_score") @db.Decimal(5, 2)
+  overrideScore    Decimal  @map("override_score") @db.Decimal(5, 2)
+  reason           String   @db.Text
+  evidence         String?  @db.Text
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  assessment     ChsAssessment     @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  parameterScore ChsParameterScore @relation(fields: [parameterScoreId], references: [id], onDelete: Cascade)
+  user           User              @relation(fields: [userId], references: [id])
+
+  @@map("chs_overrides")
+}
+
+// ============================================================================
+// RISK MATRIX
+// ============================================================================
+
+model RiskMatrix {
+  id           String    @id @default(uuid())
+  assessmentId String    @unique @map("assessment_id")
+  overallRisk  RiskLevel @map("overall_risk")
+  riskScore    Decimal   @map("risk_score") @db.Decimal(5, 2)
+  computedAt   DateTime  @default(now()) @map("computed_at")
+
+  assessment ChsAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  factors    RiskFactor[]
+
+  @@map("risk_matrices")
+}
+
+model RiskFactor {
+  id           String    @id @default(uuid())
+  riskMatrixId String    @map("risk_matrix_id")
+  category     String
+  factor       String
+  level        RiskLevel
+  score        Decimal   @db.Decimal(5, 2)
+  mitigation   String?   @db.Text
+
+  riskMatrix RiskMatrix @relation(fields: [riskMatrixId], references: [id], onDelete: Cascade)
+
+  @@index([riskMatrixId])
+  @@map("risk_factors")
+}
+
+// ============================================================================
+// AI RECOMMENDATIONS
+// ============================================================================
+
+model AiRecommendation {
+  id              String   @id @default(uuid())
+  parameterId     String   @map("parameter_id")
+  assessmentId    String?  @map("assessment_id")
+  suggestedScore  Decimal  @map("suggested_score") @db.Decimal(5, 2)
+  confidence      Decimal  @db.Decimal(5, 2)
+  reasoning       String   @db.Text
+  modelVersion    String   @map("model_version")
+  status          String   @default("PENDING")
+  reviewedById    String?  @map("reviewed_by_id")
+  reviewedAt      DateTime? @map("reviewed_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  parameter  ChsParameter @relation(fields: [parameterId], references: [id])
+  reviewedBy User?        @relation("ReviewedBy", fields: [reviewedById], references: [id])
+
+  @@index([parameterId])
+  @@map("ai_recommendations")
+}
+
+// ============================================================================
+// WORKFLOW
+// ============================================================================
+
+model WorkflowInstance {
+  id           String         @id @default(uuid())
+  companyId    String         @map("company_id")
+  assessmentId String?        @unique @map("assessment_id")
+  currentStatus WorkflowStatus @map("current_status")
+  startedAt    DateTime       @default(now()) @map("started_at")
+  completedAt  DateTime?      @map("completed_at")
+
+  company    Company         @relation(fields: [companyId], references: [id])
+  assessment ChsAssessment?  @relation(fields: [assessmentId], references: [id])
+  actions    WorkflowAction[]
+
+  @@index([companyId])
+  @@map("workflow_instances")
+}
+
+model WorkflowAction {
+  id          String         @id @default(uuid())
+  instanceId  String         @map("instance_id")
+  userId      String         @map("user_id")
+  fromStatus  WorkflowStatus @map("from_status")
+  toStatus    WorkflowStatus @map("to_status")
+  comment     String?        @db.Text
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  instance WorkflowInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  user     User             @relation(fields: [userId], references: [id])
+
+  @@index([instanceId])
+  @@map("workflow_actions")
+}
+
+// ============================================================================
+// COMMITTEE
+// ============================================================================
+
+model CommitteeSession {
+  id          String         @id @default(uuid())
+  title       String
+  scheduledAt DateTime       @map("scheduled_at")
+  status      WorkflowStatus @default(COMMITTEE_REVIEW)
+  notes       String?        @db.Text
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  reviews CommitteeReview[]
+
+  @@map("committee_sessions")
+}
+
+model CommitteeReview {
+  id           String   @id @default(uuid())
+  sessionId    String   @map("session_id")
+  assessmentId String   @map("assessment_id")
+  agenda       String?  @db.Text
+  decision     String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  session CommitteeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  votes   CommitteeVote[]
+
+  @@map("committee_reviews")
+}
+
+model CommitteeVote {
+  id        String   @id @default(uuid())
+  reviewId  String   @map("review_id")
+  userId    String   @map("user_id")
+  vote      String
+  comment   String?  @db.Text
+  votedAt   DateTime @default(now()) @map("voted_at")
+
+  review CommitteeReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  user   User            @relation(fields: [userId], references: [id])
+
+  @@unique([reviewId, userId])
+  @@map("committee_votes")
+}
+
+// ============================================================================
+// DEAL MANAGEMENT & CAPITAL RAILS
+// ============================================================================
+
+model Deal {
+  id             String       @id @default(uuid())
+  companyId      String       @map("company_id")
+  assessmentId   String?      @map("assessment_id")
+  title          String
+  capitalRoute   CapitalRoute @map("capital_route")
+  amount         Decimal      @db.Decimal(18, 2)
+  currency       String       @default("INR")
+  status         DealStatus   @default(PROSPECT)
+  expectedClose  DateTime?    @map("expected_close")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  company    Company        @relation(fields: [companyId], references: [id])
+  assessment ChsAssessment? @relation(fields: [assessmentId], references: [id])
+  debtRail   DebtRailApplication?
+  equityRail EquityRailApplication?
+  startupRail StartupRailApplication?
+
+  @@index([companyId])
+  @@index([status])
+  @@map("deals")
+}
+
+model DebtRailApplication {
+  id              String   @id @default(uuid())
+  dealId          String   @unique @map("deal_id")
+  facilityType    String   @map("facility_type")
+  tenureMonths    Int?     @map("tenure_months")
+  interestRate    Decimal? @map("interest_rate") @db.Decimal(5, 2)
+  collateralOffered String? @map("collateral_offered") @db.Text
+  dscrAtOrigination Decimal? @map("dscr_at_origination") @db.Decimal(5, 2)
+  lenderNotes     String?  @map("lender_notes") @db.Text
+
+  deal Deal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@map("debt_rail_applications")
+}
+
+model EquityRailApplication {
+  id               String   @id @default(uuid())
+  dealId           String   @unique @map("deal_id")
+  roundType        String   @map("round_type")
+  preMoneyValuation Decimal? @map("pre_money_valuation") @db.Decimal(18, 2)
+  equityOffered    Decimal? @map("equity_offered") @db.Decimal(5, 2)
+  useOfFunds       String?  @map("use_of_funds") @db.Text
+  investorNotes    String?  @map("investor_notes") @db.Text
+
+  deal Deal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@map("equity_rail_applications")
+}
+
+model StartupRailApplication {
+  id            String   @id @default(uuid())
+  dealId        String   @unique @map("deal_id")
+  stage         String
+  burnRate      Decimal? @map("burn_rate") @db.Decimal(18, 2)
+  runwayMonths  Int?     @map("runway_months")
+  tractionMetrics Json?  @map("traction_metrics")
+  pitchNotes    String?  @map("pitch_notes") @db.Text
+
+  deal Deal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@map("startup_rail_applications")
+}
+
+// ============================================================================
+// REPORTING
+// ============================================================================
+
+model Report {
+  id           String       @id @default(uuid())
+  assessmentId String       @map("assessment_id")
+  type         ReportType
+  format       ReportFormat
+  fileKey      String?      @map("file_key")
+  generatedAt  DateTime     @default(now()) @map("generated_at")
+  metadata     Json?
+
+  assessment ChsAssessment @relation(fields: [assessmentId], references: [id])
+
+  @@index([assessmentId])
+  @@map("reports")
+}
+
+// ============================================================================
+// NOTIFICATIONS
+// ============================================================================
+
+model Notification {
+  id        String              @id @default(uuid())
+  userId    String              @map("user_id")
+  channel   NotificationChannel
+  title     String
+  message   String              @db.Text
+  isRead    Boolean             @default(false) @map("is_read")
+  metadata  Json?
+  createdAt DateTime            @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// ============================================================================
+// AUDIT TRAIL
+// ============================================================================
+
+model AuditLog {
+  id         String      @id @default(uuid())
+  userId     String?     @map("user_id")
+  action     AuditAction
+  entityType String      @map("entity_type")
+  entityId   String?     @map("entity_id")
+  oldValues  Json?       @map("old_values")
+  newValues  Json?       @map("new_values")
+  ipAddress  String?     @map("ip_address")
+  userAgent  String?     @map("user_agent")
+  metadata   Json?
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
