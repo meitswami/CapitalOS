@@ -72,13 +72,15 @@ const ROLE_PERMISSION_MAP: Record<string, string[]> = {
   ],
   ANALYST: [
     'companies:read', 'companies:update', 'documents:read', 'documents:verify',
-    'financial:read', 'financial:manage', 'chs:read', 'chs:score', 'chs:override',
+    'financial:read', 'financial:manage', 'industry:read',
+    'chs:read', 'chs:score', 'chs:override',
     'risk:read', 'risk:manage', 'workflow:read', 'workflow:action',
     'reports:read', 'reports:generate',
   ],
   SENIOR_ANALYST: [
     'companies:read', 'companies:update', 'documents:read', 'documents:verify',
-    'financial:read', 'financial:manage', 'chs:read', 'chs:score', 'chs:override',
+    'financial:read', 'financial:manage', 'industry:read',
+    'chs:read', 'chs:score', 'chs:override',
     'chs:approve', 'risk:read', 'risk:manage', 'workflow:read', 'workflow:action',
     'reports:read', 'reports:generate', 'reports:export',
   ],

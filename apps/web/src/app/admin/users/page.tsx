@@ -10,11 +10,11 @@ import { useRequireAuth } from '@/hooks/use-require-auth';
 import { LoadingState } from '@/components/shared/loading-state';
 import { EmptyState } from '@/components/shared/empty-state';
 import { StatusBadge } from '@/components/shared/status-badge';
-import type { ApiListResponse, Company } from '@/lib/types';
+import type { ApiListResponse, User } from '@/lib/types';
 
-export default function AdminCompaniesPage() {
+export default function AdminUsersPage() {
   const { ready, token } = useRequireAuth();
-  const [companies, setCompanies] = useState<Company[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -25,8 +25,8 @@ export default function AdminCompaniesPage() {
     const params = new URLSearchParams({ limit: '50' });
     if (search) params.set('search', search);
 
-    api<ApiListResponse<Company>>(`/companies?${params}`, { token })
-      .then((res) => setCompanies(res.data))
+    api<ApiListResponse<User>>(`/users?${params}`, { token })
+      .then((res) => setUsers(res.data))
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, [ready, token, search]);
@@ -36,13 +36,13 @@ export default function AdminCompaniesPage() {
   return (
     <PortalShell portal="admin">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold">Companies</h1>
-        <p className="text-muted-foreground mt-1">Borrower companies on the platform</p>
+        <h1 className="text-3xl font-bold">Users</h1>
+        <p className="text-muted-foreground mt-1">Platform user accounts and role assignments</p>
       </div>
 
       <div className="mb-6">
         <Input
-          placeholder="Search by name, CIN..."
+          placeholder="Search by name or email..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-sm"
@@ -52,31 +52,39 @@ export default function AdminCompaniesPage() {
       {error && <p className="text-destructive mb-4">{error}</p>}
       {loading ? (
         <LoadingState />
-      ) : companies.length === 0 ? (
-        <EmptyState title="No companies found" />
+      ) : users.length === 0 ? (
+        <EmptyState title="No users found" />
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Legal Name</TableHead>
-              <TableHead>Trade Name</TableHead>
-              <TableHead>Industry</TableHead>
-              <TableHead>CIN</TableHead>
+              <TableHead>Name</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Roles</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>MFA</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {companies.map((co) => (
-              <TableRow key={co.id}>
+            {users.map((user) => (
+              <TableRow key={user.id}>
                 <TableCell>
-                  <Link href={`/admin/companies/${co.id}`} className="font-medium hover:text-accent">
-                    {co.legalName}
+                  <Link href={`/admin/users/${user.id}`} className="font-medium hover:text-accent">
+                    {user.firstName} {user.lastName}
                   </Link>
                 </TableCell>
-                <TableCell>{co.tradeName || '—'}</TableCell>
-                <TableCell>{co.industry?.name || '—'}</TableCell>
-                <TableCell className="font-mono text-xs">{co.cin || '—'}</TableCell>
-                <TableCell><StatusBadge status={co.status} /></TableCell>
+                <TableCell>{user.email}</TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-1">
+                    {user.userRoles?.map((ur) => (
+                      <span key={ur.role.code} className="text-xs px-2 py-0.5 rounded bg-secondary">
+                        {ur.role.name}
+                      </span>
+                    ))}
+                  </div>
+                </TableCell>
+                <TableCell><StatusBadge status={user.status} /></TableCell>
+                <TableCell>{user.mfaEnabled ? 'Yes' : 'No'}</TableCell>
               </TableRow>
             ))}
           </TableBody>

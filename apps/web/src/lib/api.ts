@@ -19,7 +19,10 @@ export async function api<T>(endpoint: string, options: RequestOptions = {}): Pr
   const data = await res.json();
 
   if (!res.ok) {
-    throw new Error(data.message || 'API request failed');
+    const message = Array.isArray(data.message)
+      ? data.message.join(', ')
+      : data.message || data.error || 'API request failed';
+    throw new Error(message);
   }
 
   return data;

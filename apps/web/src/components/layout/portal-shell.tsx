@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   Building2,
   LayoutDashboard,
@@ -14,6 +14,9 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { clearAuth, getStoredUser, getRefreshToken } from '@/lib/auth';
+import { authApi } from '@/lib/api';
+import { getAccessToken } from '@/lib/auth';
 
 interface NavItem {
   label: string;
@@ -73,6 +76,7 @@ const PORTAL_NAV: Record<string, { title: string; items: NavItem[] }> = {
       { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
       { label: 'Users', href: '/admin/users', icon: Users },
       { label: 'Organizations', href: '/admin/organizations', icon: Building2 },
+      { label: 'Companies', href: '/admin/companies', icon: Factory },
       { label: 'Industry Taxonomy', href: '/admin/industry', icon: Factory },
       { label: 'Master Data', href: '/admin/masters', icon: Settings },
       { label: 'Audit Trail', href: '/admin/audit', icon: FileText },
@@ -83,25 +87,40 @@ const PORTAL_NAV: Record<string, { title: string; items: NavItem[] }> = {
 interface PortalShellProps {
   portal: keyof typeof PORTAL_NAV;
   children: React.ReactNode;
-  user?: { firstName?: string; lastName?: string; email?: string };
 }
 
-export function PortalShell({ portal, children, user }: PortalShellProps) {
+export function PortalShell({ portal, children }: PortalShellProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const config = PORTAL_NAV[portal];
+  const user = getStoredUser();
+
+  async function handleLogout() {
+    const token = getAccessToken();
+    const refreshToken = getRefreshToken();
+    if (token) {
+      try {
+        await authApi.logout(token, refreshToken || undefined);
+      } catch {
+        // ignore logout API errors
+      }
+    }
+    clearAuth();
+    router.push('/login');
+  }
 
   return (
     <div className="flex min-h-screen">
-      <aside className="w-64 border-r bg-primary text-primary-foreground flex flex-col">
+      <aside className="w-64 border-r bg-primary text-primary-foreground flex flex-col shrink-0">
         <div className="p-6 border-b border-white/10">
           <div className="text-xs uppercase tracking-widest text-white/60 mb-1">CapitalOS</div>
           <div className="font-semibold text-lg">{config.title}</div>
         </div>
 
-        <nav className="flex-1 p-4 space-y-1">
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           {config.items.map((item) => {
             const Icon = item.icon;
-            const active = pathname === item.href;
+            const active = pathname === item.href || (item.href !== `/${portal}` && pathname.startsWith(item.href + '/'));
             return (
               <Link
                 key={item.href}
@@ -113,7 +132,7 @@ export function PortalShell({ portal, children, user }: PortalShellProps) {
                     : 'text-white/70 hover:bg-white/10 hover:text-white',
                 )}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-4 w-4 shrink-0" />
                 {item.label}
               </Link>
             );
@@ -129,12 +148,14 @@ export function PortalShell({ portal, children, user }: PortalShellProps) {
               <div className="text-xs text-white/60">{user.email}</div>
             </div>
           )}
-          <Link href="/login">
-            <Button variant="ghost" className="w-full justify-start text-white/70 hover:text-white hover:bg-white/10">
-              <LogOut className="h-4 w-4 mr-2" />
-              Sign Out
-            </Button>
-          </Link>
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-white/70 hover:text-white hover:bg-white/10"
+            onClick={handleLogout}
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            Sign Out
+          </Button>
         </div>
       </aside>
 

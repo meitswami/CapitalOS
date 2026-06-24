@@ -12,7 +12,7 @@ import { EmptyState } from '@/components/shared/empty-state';
 import { StatusBadge } from '@/components/shared/status-badge';
 import type { ApiListResponse, Company } from '@/lib/types';
 
-export default function AdminCompaniesPage() {
+export default function AnalystCompaniesPage() {
   const { ready, token } = useRequireAuth();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [search, setSearch] = useState('');
@@ -34,19 +34,14 @@ export default function AdminCompaniesPage() {
   if (!ready) return null;
 
   return (
-    <PortalShell portal="admin">
+    <PortalShell portal="analyst">
       <div className="mb-8">
         <h1 className="text-3xl font-bold">Companies</h1>
-        <p className="text-muted-foreground mt-1">Borrower companies on the platform</p>
+        <p className="text-muted-foreground mt-1">Searchable company directory for assessment</p>
       </div>
 
       <div className="mb-6">
-        <Input
-          placeholder="Search by name, CIN..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="max-w-sm"
-        />
+        <Input placeholder="Search companies..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-sm" />
       </div>
 
       {error && <p className="text-destructive mb-4">{error}</p>}
@@ -59,9 +54,8 @@ export default function AdminCompaniesPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Legal Name</TableHead>
-              <TableHead>Trade Name</TableHead>
               <TableHead>Industry</TableHead>
-              <TableHead>CIN</TableHead>
+              <TableHead>Sub-sector</TableHead>
               <TableHead>Status</TableHead>
             </TableRow>
           </TableHeader>
@@ -69,13 +63,13 @@ export default function AdminCompaniesPage() {
             {companies.map((co) => (
               <TableRow key={co.id}>
                 <TableCell>
-                  <Link href={`/admin/companies/${co.id}`} className="font-medium hover:text-accent">
+                  <Link href={`/analyst/companies/${co.id}`} className="font-medium hover:text-accent">
                     {co.legalName}
                   </Link>
+                  {co.tradeName && <div className="text-xs text-muted-foreground">{co.tradeName}</div>}
                 </TableCell>
-                <TableCell>{co.tradeName || '—'}</TableCell>
                 <TableCell>{co.industry?.name || '—'}</TableCell>
-                <TableCell className="font-mono text-xs">{co.cin || '—'}</TableCell>
+                <TableCell>{co.subSector?.name || '—'}</TableCell>
                 <TableCell><StatusBadge status={co.status} /></TableCell>
               </TableRow>
             ))}
